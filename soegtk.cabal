@@ -18,6 +18,13 @@ Description:    An alternative implementation of the graphics library used in th
 Category:       Graphics
 Tested-With:    GHC == 6.12.1
 
+Data-Dir:		demo
+Data-Files:		BouncingBall.hs
+                Demo1.hs
+                Demo2.hs
+                Makefile
+                Snowflake.hs
+
 Source-Repository head
   type:         darcs
   location:     http://code.haskell.org/gtk2hs/
