@@ -53,7 +53,7 @@ gen (l@(v1,v2):ls)
                       r = v2 <+> (0.5 .* dir) <+> ((1/3) .* ort)
                       s = v2 <+> (0.5 .* dir) <+> ((-1/3) .* ort)
                   in --(v2,p) : (q,v1) : gen ((p,r) : (q,r) : (p,s) : (q,s) : ls)
-		     gen ((v2,p) : (q,v1) : (p,r) : (q,r) : (p,s) : (q,s) : ls)
+                     gen ((v2,p) : (q,v1) : (p,r) : (q,r) : (p,s) : (q,s) : ls)
                 -- kauniimpi kuva (mutta tehtävänannon vastainen) tulee
                 -- korvaamalla edellinen lauseke seuraavalla:
                 -- gen ((v2,p) : (q,v1) : (p,r) : (q,r) : (p,s) : (q,s) : ls)

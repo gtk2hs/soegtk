@@ -24,7 +24,6 @@ main = runGraphics $
                            y''' | y'' + 5 > ymax = ymax `div` 2
                                 | otherwise = y''
                        e <- getWindowEvent w
-		       case e of Closed -> return ()
+                       case e of Closed -> return ()
                                  _      -> loop x''' y''' xd' yd'
           loop 300 100 5 5
-
