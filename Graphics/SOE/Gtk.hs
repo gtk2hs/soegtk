@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 -- -*-haskell-*-
 --  SOE implementation based on Gtk and cairo (or Gdk).
 --  Some code borrowed from SOE implementation based on OpenGL and GLFW by
@@ -84,8 +83,6 @@ module Graphics.SOE.Gtk (
   word32ToInt
   ) where
 
--- Cairo is always enabled since we're depending on gtk-0.11.0
-#define USE_CAIRO
 
 import Data.List (foldl')
 import Data.Ix (Ix)
@@ -100,13 +97,9 @@ import qualified Graphics.UI.Gtk as Gtk
 import qualified Graphics.UI.Gtk.Gdk.Events as Events
 import qualified Graphics.UI.Gtk.Gdk.GC as GC
 
-#ifdef USE_CAIRO
 import qualified Graphics.UI.Gtk.Cairo as Gtk.Cairo
 import qualified Graphics.Rendering.Cairo as Cairo
 import qualified Graphics.Rendering.Cairo.Matrix as Matrix
-#else
-import qualified System.IO
-#endif
 
 -------------------
 -- Window Functions
@@ -171,26 +164,17 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) =
   eventsChan <- newChan
 
   -- set up the fonts
-#ifdef USE_CAIRO
   pc <- Gtk.Cairo.cairoCreateContext Nothing
-#else
-  pc <- Gtk.widgetCreatePangoContext canvas
-#endif
   fd <- Gtk.contextGetFontDescription pc
   Gtk.fontDescriptionSetSize fd 12
   Gtk.fontDescriptionSetFamily fd "Sans"
   Gtk.contextSetFontDescription pc fd
 
-#ifndef USE_CAIRO
   win <- Gtk.widgetGetDrawWindow canvas
-  -- set up the graphics context
-  gc <- GC.gcNew win
-#endif
   Gtk.onExpose canvas $ \Events.Expose { Events.eventArea = eventArea,
                                       Events.eventRegion = exposeRegion } -> do
     Graphic graphic <- readMVar graphicVar
     win <- Gtk.widgetGetDrawWindow canvas
-#ifdef USE_CAIRO
     Gtk.Cairo.renderWithDrawable win $ do
       -- clip to the exposed region
       Gtk.Cairo.region exposeRegion
@@ -200,18 +184,6 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) =
       Cairo.setLineWidth 1.5
       -- actually do the drawing
       graphic pc
-#else
-    --fill backgound with black
-    GC.gcSetValues gc GC.newGCValues { GC.foreground = colorToRGB Black }
-    case eventArea of
-      Gtk.Rectangle x y width height ->
-        Gtk.drawRectangle win gc True x y width height
-    --use white default colour
-    GC.gcSetValues gc GC.newGCValues { GC.foreground = colorToRGB White }
-
-    -- actually do the drawing
-    graphic (Gtk.toDrawable win) gc pc
-#endif
     return True
 
   Gtk.onDelete window $ \_ -> do writeChan eventsChan Closed
@@ -299,10 +271,8 @@ data Color = Black
 
 type Angle = Float
 
-#ifdef USE_CAIRO
-
 --------------------------------------------------
--- implementation using the new cairo API
+-- implementation using the cairo API
 --
 
 newtype Graphic = Graphic (Gtk.PangoContext -> Cairo.Render ())
@@ -511,154 +481,6 @@ combineRegion operator a b =
                             (regionOriginY b - y)
           Cairo.maskSurface surface (fromIntegral x'') (fromIntegral y'')
    in Region drawing x y width height
-
-#else
-
---------------------------------------------------
--- implementation using the old Gdk API
---
-
-newtype Graphic = Graphic (Gtk.Drawable -> GC.GC -> Gtk.PangoContext -> IO ())
-
-emptyGraphic :: Graphic
-emptyGraphic = Graphic (\_ _ _ -> return ())
-
-overGraphic :: Graphic -> Graphic -> Graphic
-overGraphic (Graphic over) (Graphic base) =
-  Graphic (\dw gc pc -> base dw gc pc >> over dw gc pc)
-
-overGraphics :: [Graphic] -> Graphic
-overGraphics = foldl1 overGraphic
-
-colorToRGB :: Color -> Gtk.Color
-colorToRGB Black   = Gtk.Color 0     0     0
-colorToRGB Blue    = Gtk.Color 0     0     65535
-colorToRGB Green   = Gtk.Color 0     65535 0
-colorToRGB Cyan    = Gtk.Color 0     65535 65535
-colorToRGB Red     = Gtk.Color 65535 0     0
-colorToRGB Magenta = Gtk.Color 65535 0     65535
-colorToRGB Yellow  = Gtk.Color 65535 65535 0
-colorToRGB White   = Gtk.Color 65535 65535 65535
-
-withColor :: Color -> Graphic -> Graphic
-withColor color (Graphic graphic) = Graphic $ \dw gc pc -> do
-  v <- GC.gcGetValues gc
-  GC.gcSetValues gc GC.newGCValues {
-      GC.foreground = colorToRGB color,
-      GC.lineWidth = 2
-    }
-  graphic dw gc pc
-  GC.gcSetValues gc GC.newGCValues {
-      GC.foreground = GC.foreground v,
-      GC.lineWidth  = GC.lineWidth v
-    }
-
-text :: Point -> String -> Graphic
-text (x,y) str = Graphic $ \dw gc pc -> do
-  pl <- Gtk.layoutEmpty pc
-  Gtk.layoutSetText pl str
-  Gtk.drawLayout dw gc x y pl
-
-type Point = (Int, Int)
-
-ellipse :: Point -> Point -> Graphic
-ellipse pt1 pt2 = Graphic $ \dw gc pc -> do
-  let (x,y,width,height) = normaliseBounds' pt1 pt2
-  Gtk.drawArc dw gc True x y width height 0 (360*64)
-
-shearEllipse :: Point -> Point -> Point -> Graphic
-shearEllipse (x1,y1) (x2,y2) (x3,y3) = Graphic $ \dw gc pc -> do
-  let avg a b = (a + b) `div` 2
-      x = avg x2 x3
-      y = avg y2 y3
-      dx1 = fromIntegral ((x2 - x1) `div` 2)
-      dy1 = fromIntegral ((y2 - y1) `div` 2)
-      dx2 = fromIntegral ((x3 - x1) `div` 2)
-      dy2 = fromIntegral ((y3 - y1) `div` 2)
-      ps = [ (x + round(cos a * dx1 + sin a * dx2)
-             ,y + round(cos a * dy1 + sin a * dy2))
-           | a <- take 60 [0, pi/30 .. ] ]
-  Gtk.drawPolygon dw gc True ps
-
-line :: Point -> Point -> Graphic
-line p1 p2 = Graphic $ \dw gc pc -> Gtk.drawLine dw gc p1 p2
-
-polygon :: [Point] -> Graphic
-polygon ps = Graphic $ \dw gc pc -> Gtk.drawPolygon dw gc True ps
-
-polyline :: [Point] -> Graphic
-polyline ps = Graphic $ \dw gc pc -> Gtk.drawLines dw gc ps
-
-polyBezier :: [Point] -> Graphic
-polyBezier ps = Graphic $ \dw gc pc -> do
-  System.IO.hPutStrLn System.IO.stderr $ "warning: polyBezier is only available "
-    ++ "in Grahpics.SOE.Gtk built with Gtk+ 2.8 or later -- using polyline instead"
-  Gtk.drawLines dw gc ps
-
-arc :: Point -> Point -> Angle -> Angle -> Graphic
-arc pt1 pt2 start extent = Graphic $ \dw gc pc -> do
-  let (x,y,width,height) = normaliseBounds' pt1 pt2
-  Gtk.drawArc dw gc True x y width height
-    (round $ start * 64)
-    (round $ (start+extent) * 64)
-
-newtype Region = Region (IO Gtk.Region)
-
-createRectangle :: Point -> Point -> Region
-createRectangle pt1 pt2 =
-  let (x,y,width,height) = normaliseBounds' pt1 pt2 
-      region = Gtk.regionRectangle (Gtk.Rectangle x y width height)
-   in Region region
-
-createEllipse :: Point -> Point -> Region
-createEllipse (x1, y1) (x2, y2) =
-  let rx = (x2 - x1) `div` 2
-      ry = (y2 - y1) `div` 2
-      cx = x1 + rx
-      cy = y1 + ry
-      rx' = fromIntegral rx
-      ry' = fromIntegral ry
-      ps = [ (cx + round (rx' * cos a), cy + round (ry' * sin a))
-           | a <- take 60 [0, pi/30 .. ] ]
-      region = Gtk.regionPolygon ps Gtk.WindingRule
-   in Region region
-
-createPolygon :: [Point] -> Region
-createPolygon ps =
-  let region = Gtk.regionPolygon ps Gtk.WindingRule
-   in Region region
-
-andRegion, orRegion, xorRegion, diffRegion :: Region -> Region -> Region
-andRegion  (Region a) (Region b) = Region $ do
-  regionA <- a
-  regionB <- b
-  Gtk.regionIntersect regionA regionB
-  return regionA
-orRegion   (Region a) (Region b) = Region $ do
-  regionA <- a
-  regionB <- b
-  Gtk.regionUnion regionA regionB
-  return regionA
-xorRegion  (Region a) (Region b) = Region $ do
-  regionA <- a
-  regionB <- b
-  Gtk.regionXor regionA regionB
-  return regionA
-diffRegion (Region a) (Region b) = Region $ do
-  regionA <- a
-  regionB <- b
-  Gtk.regionSubtract regionA regionB
-  return regionA
-
-drawRegion :: Region -> Graphic
-drawRegion (Region mkRegion) = Graphic $ \dw gc pc -> do
-  region <- mkRegion
-  rects <- Gtk.regionGetRectangles region
-  mapM_ (\(Gtk.Rectangle x y width height) ->
-           Gtk.drawRectangle dw gc True x y width height)
-        rects
-
-#endif
 
 normaliseBounds :: Point -> Point -> Maybe (Double,Double,Double,Double)
 normaliseBounds (x1,y1) (x2,y2) = 
