@@ -14,12 +14,12 @@ Synopsis:       GUI functions as used in the book "The Haskell School of Express
 Description:    An alternative implementation of the graphics library used in the book The Haskell
                 School of Expression, by Paul Hudak, <http://www.haskell.org/soe/
                 This library builds on top of Gtk+.
-				
+
 Category:       Graphics
 Tested-With:    GHC == 6.12.1
 
-Data-Dir:		demo
-Data-Files:		BouncingBall.hs
+Data-Dir:	demo
+Data-Files:	BouncingBall.hs
                 Demo1.hs
                 Demo2.hs
                 Makefile
@@ -36,7 +36,7 @@ Library
                         gtk   >= 0.12 && < 0.13,
                         stm   >= 2.0 && < 3.0,
                         old-time >= 1.0.0.2
-						
+			
         exposed-modules:
-          Graphics.SOE.Gtk		
+          Graphics.SOE.Gtk
 
