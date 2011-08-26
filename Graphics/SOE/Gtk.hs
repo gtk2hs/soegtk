@@ -78,6 +78,7 @@ module Graphics.SOE.Gtk (
   Event (..),
   maybeGetWindowEvent,
   getWindowEvent,
+  getWindowTick,
   Word32,
   timeGetTime,
   word32ToInt
@@ -90,7 +91,8 @@ import Data.Word (Word32)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Control.Concurrent (forkIO, yield, rtsSupportsBoundThreads)
 import Control.Concurrent.MVar
-import Control.Concurrent.Chan
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TChan
 
 import qualified System.Time
 import qualified Graphics.UI.Gtk as Gtk
@@ -132,15 +134,17 @@ data Window = Window {
   window :: Gtk.Window,
   canvas :: Gtk.DrawingArea,
   graphicVar :: MVar Graphic,
-  eventsChan :: Chan Event
+  eventsChan :: TChan Event,
+  tickVar    :: MVar Tick
 }
 
 openWindow :: Title -> Size -> IO Window
 openWindow title size =
-  openWindowEx title Nothing (Just size) drawBufferedGraphic
+  openWindowEx title Nothing (Just size) drawBufferedGraphic Nothing
 
-openWindowEx :: Title -> Maybe Point -> Maybe Size -> RedrawMode -> IO Window
-openWindowEx title position size (RedrawMode useDoubleBuffer) =
+openWindowEx :: Title -> Maybe Point -> Maybe Size -> RedrawMode ->
+                Maybe Time -> IO Window
+openWindowEx title position size (RedrawMode useDoubleBuffer) tick =
   Gtk.postGUISync $ do
   window <- Gtk.windowNew
   Gtk.windowSetTitle window title
@@ -161,7 +165,8 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) =
   Gtk.widgetShowAll window
 
   graphicVar <- newMVar emptyGraphic
-  eventsChan <- newChan
+  eventsChan <- atomically $ newTChan
+  tickVar    <- newEmptyMVar
 
   -- set up the fonts
   pc <- Gtk.Cairo.cairoCreateContext Nothing
@@ -186,17 +191,27 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) =
       graphic pc
     return True
 
-  Gtk.onDelete window $ \_ -> do writeChan eventsChan Closed
+  Gtk.onDelete window $ \_ -> do atomically $ writeTChan eventsChan Closed
                                  Gtk.widgetHide window
                                  return True
-                     
+
+  case tick of
+    Just frequency -> do
+      let resetTick = do
+           _ <- tryTakeMVar tickVar
+           putMVar tickVar ()
+      Gtk.timeoutAddFull (resetTick >> return True)
+                         Gtk.priorityDefaultIdle frequency
+      return ()
+    Nothing -> return ()
+
   Gtk.onMotionNotify canvas True $ \Events.Motion { Events.eventX=x, Events.eventY=y} ->
-    writeChan eventsChan MouseMove {
+    atomically $ writeTChan eventsChan MouseMove {
       pt = (round x, round y)
     } >> return True
   
   let mouseButtonHandler event@Events.Button { Events.eventX=x, Events.eventY=y } = do
-        writeChan eventsChan Button {
+        atomically $ writeTChan eventsChan Button {
             pt = (round x,round y),
             isLeft = Events.eventButton event == Gtk.LeftButton,
             isDown = case Events.eventClick event of
@@ -209,20 +224,21 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) =
 
   let keyPressHandler Events.Key { Events.eventKeyChar = Nothing } = return True
       keyPressHandler Events.Key { Events.eventKeyChar = Just char, Events.eventRelease = release } =
-        writeChan eventsChan Key {
+        atomically $ writeTChan eventsChan Key {
                      char = char,
                      isDown = not release
         } >> return True
   Gtk.onKeyPress canvas keyPressHandler
   Gtk.onKeyRelease canvas keyPressHandler
 
-  Gtk.onSizeAllocate canvas $ \_ -> writeChan eventsChan Resize
+  Gtk.onSizeAllocate canvas $ \_ -> atomically $ writeTChan eventsChan Resize
 
   return Window {
     window  = window,
     canvas  = canvas,
     graphicVar = graphicVar,
-    eventsChan = eventsChan
+    eventsChan = eventsChan,
+    tickVar    = tickVar
   }
 
 getWindowSize :: Window -> IO Size
@@ -518,7 +534,7 @@ data Event = Key {
   deriving Show
 
 getWindowEvent_ :: Window -> IO Event
-getWindowEvent_ win = readChan (eventsChan win)
+getWindowEvent_ win = atomically $ readTChan (eventsChan win)
 
 getWindowEvent :: Window -> IO Event
 getWindowEvent win = do
@@ -535,14 +551,14 @@ getWindowEvent win = do
 
 maybeGetWindowEvent :: Window -> IO (Maybe Event)
 maybeGetWindowEvent win = do
-  noEvents <- isEmptyChan (eventsChan win)
+  noEvents <- atomically $ isEmptyTChan (eventsChan win)
   if noEvents then -- Sync with the main GUI loop or we can end up spinning on
                    -- maybeGetWindowEvent and prevent the screen redrawing.
                    -- We also introduce a very short delay here of 5ms. This
                    -- prevents the program from using 100% cpu and redrawing
                    -- constantly. This actually makes animation much smoother
                    -- since the process gets treated as interactive rather than
-                   -- as a CPU hog so the scheduler gives us the benefit on
+                   -- as a CPU hog so the scheduler gives us the benefit of
                    -- latency. Even with a 5ms delay here we can animate at up
                    -- to 200fps.
                    do syncVar <- newEmptyMVar
@@ -550,7 +566,7 @@ maybeGetWindowEvent win = do
                                          Gtk.priorityDefaultIdle 10
                       takeMVar syncVar
                       return Nothing
-              else do event <- readChan (eventsChan win)
+              else do event <- atomically $ readTChan (eventsChan win)
                       case event of
                         MouseMove _ -> Gtk.postGUIAsync $
                                        Gtk.widgetGetDrawWindow (canvas win)
@@ -588,6 +604,17 @@ getLBP w = getButton w 1 True
 
 getRBP :: Window -> IO Point
 getRBP w = getButton w 2 True
+
+---------------------------------
+-- Window Tick Handling Functions
+---------------------------------
+
+type Time = Int
+
+type Tick = ()
+
+getWindowTick :: Window -> IO ()
+getWindowTick w = takeMVar (tickVar w)
 
 timeGetTime :: IO Word32
 timeGetTime = do
