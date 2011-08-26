@@ -72,8 +72,12 @@ test = runGraphics $ do w <- openWindow "T 3.7-8" (200, 200)
                           ls = gen [((1/8 * xmax, 1/2 * ymax),
                                      (7/8 * xmax, 1/2 * ymax))]
                       setGraphic w (draw ls)
-                      e <- getWindowEvent w
-                      case e of Resize -> loop w
-                                _      -> return ()
+                      nextEvent w
+
+          nextEvent w = do
+            e <- getWindowEvent w
+            case e of Closed -> return ()
+                      Resize -> loop w
+                      _      -> nextEvent w
 
 main = test
