@@ -4,11 +4,11 @@ License:        LGPL-2.1
 License-file:   COPYING
 Copyright:      (c) 2001-2010 The Gtk2Hs Team
 Author:         Duncan Coutts, Paul Liu
-Maintainer:     gtk2hs-users@sourceforge.net
+Maintainer:     gtk2hs-users@lists.sourceforge.net
 Build-Type:     Simple
 Cabal-Version:  >= 1.6.0
 Stability:      provisional
-homepage:       http://www.haskell.org/gtk2hs/
+homepage:       http://projects.haskell.org/gtk2hs/
 bug-reports:    http://hackage.haskell.org/trac/gtk2hs/
 Synopsis:       GUI functions as used in the book "The Haskell School of Expression".
 Description:    An alternative implementation of the graphics library used in the book The Haskell
