@@ -16,7 +16,7 @@ Description:    An alternative implementation of the graphics library used in th
                 This library builds on top of Gtk+.
 
 Category:       Graphics
-Tested-With:    GHC == 6.12.1
+Tested-With:    GHC == 6.10.4, GHC == 6.12.3, GHC == 7.0.3, GHC == 7.2.1
 
 Data-Dir:	demo
 Data-Files:	BouncingBall.hs
